@@ -1,0 +1,59 @@
+FROM docker.io/python:3.11-slim
+
+MAINTAINER "chachacreate<kirk0221@naver.com>"
+
+# 환경변수 설정
+ENV TZ=Asia/Seoul
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# 시간대 설정 및 필요한 시스템 패키지 설치
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libc6-dev \
+    libffi-dev \
+    libssl-dev \
+    curl \
+    gettext-base \
+    && ln -snf /usr/share/zoneinfo/Asia/Seoul /etc/localtime \
+    && echo Asia/Seoul > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
+
+# 작업 디렉토리 설정
+WORKDIR /app
+
+# Python 의존성 파일들 먼저 복사 (레이어 캐싱 최적화)
+COPY requirements.txt .
+
+# Python 패키지 설치
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# 필요한 디렉토리 생성
+RUN mkdir -p /app/git_submodule_chacha/wallet \
+    /app/logs \
+    /app/config \
+    /app/services
+
+# 애플리케이션 소스 코드 복사
+COPY config/ ./config/
+COPY services/ ./services/
+COPY main.py .
+
+# 권한 설정
+RUN chmod -R 755 /app
+
+# 시작 스크립트 생성
+RUN echo '#!/bin/bash' > /app/start.sh && \
+    echo 'echo "Starting FastAPI server..."' >> /app/start.sh && \
+    echo 'echo "Oracle Wallet Path: $WALLET_PATH"' >> /app/start.sh && \
+    echo 'echo "Service Name: $ORACLE_SERVICE_NAME"' >> /app/start.sh && \
+    echo 'python main.py' >> /app/start.sh && \
+    chmod +x /app/start.sh
+
+# 포트 노출
+EXPOSE 80
+
+# FastAPI 서버 실행
+CMD ["./start.sh"]
