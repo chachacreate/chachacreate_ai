@@ -34,6 +34,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 RUN mkdir -p /app/git_submodule_chacha/wallet \
     /app/logs \
     /app/config \
+    /app/ckpt \
     /app/services
 
 # 애플리케이션 소스 코드 복사
