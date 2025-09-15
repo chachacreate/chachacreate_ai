@@ -23,11 +23,15 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Python 의존성 파일들 먼저 복사 (레이어 캐싱 최적화)
-COPY requirements.txt .
+COPY requirements-core.txt .
+COPY requirements-heavy.txt .
 
-# Python 패키지 설치
+# Python 패키지 설치 (레이어를 2개로 나눠서 진행)
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements-core.txt
+
+RUN pip install --no-cache-dir -r requirements-heavy.txt \
+    rm -rf /root/.cache/pip
 
 # 필요한 디렉토리 생성
 RUN mkdir -p /app/git_submodule_chacha/wallet \
