@@ -6,7 +6,7 @@ ENV TZ=Asia/Seoul
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# 시간대 설정 및 필요한 시스템 패키지 설치 (OpenCV 의존성 추가)
+# 시간대 설정 및 필요한 시스템 패키지 설치
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -15,18 +15,10 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     curl \
     gettext-base \
-    # OpenCV 필수 시스템 라이브러리
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
-    libgthread-2.0-0 \
     && ln -snf /usr/share/zoneinfo/Asia/Seoul /etc/localtime \
     && echo Asia/Seoul > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
-
+    
 # 작업 디렉토리 설정
 WORKDIR /app
 
