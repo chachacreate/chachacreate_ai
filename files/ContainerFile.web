@@ -34,9 +34,7 @@ RUN pip install --no-cache-dir -r requirements-torch.txt
 RUN pip install --no-cache-dir -r requirements-cv.txt
 
 # 필요한 디렉토리 생성
-RUN mkdir -p /app/git_submodule_chacha/wallet \
-    /app/logs \
-    /app/config \
+RUN mkdir -p /app/config \
     /app/ckpt \
     /app/services
 
@@ -51,8 +49,6 @@ RUN chmod -R 755 /app
 # 시작 스크립트 생성
 RUN echo '#!/bin/bash' > /app/start.sh && \
     echo 'echo "Starting FastAPI server..."' >> /app/start.sh && \
-    echo 'echo "Oracle Wallet Path: $WALLET_PATH"' >> /app/start.sh && \
-    echo 'echo "Service Name: $ORACLE_SERVICE_NAME"' >> /app/start.sh && \
     echo 'exec python main.py' >> /app/start.sh && \
     chmod +x /app/start.sh
 
