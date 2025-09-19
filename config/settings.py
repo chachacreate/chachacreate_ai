@@ -12,27 +12,19 @@ class Settings:
     
     # === API 설정 ===
     ALLOWED_ORIGINS: List[str] = [
+        "http://localhost:5173",
         "http://chachacreate.shinhanacademy.co.kr",
         "https://chachacreate.shinhanacademy.co.kr"
     ]
     
     # === AI 모델 설정 ===
-    MODEL_PATH: str = "/path/to/your/model/best.pth"
+    MODEL_PATH: str = "./ckpt/best.pth"
     IMG_SIZE: int = 224
     IMAGENET_MEAN: List[float] = [0.485, 0.456, 0.406]
     IMAGENET_STD: List[float] = [0.229, 0.224, 0.225]
     
-    # === Oracle 데이터베이스 설정 ===
-    WALLET_PATH: str = ""
-    DB_USER: str = ""
-    DB_PASSWORD: str = ""
-    WALLET_PASSWORD: str = ""
-    ORACLE_SERVICE_NAME: str = ""
-    
-    # === 데이터베이스 연결 풀 설정 ===
-    DB_POOL_MIN: int = 2
-    DB_POOL_MAX: int = 10
-    DB_POOL_INCREMENT: int = 1
+    # === Legacy API 설정 ===
+    LEGACY_PATH: str = "http://localhost:9999/legacy"
     
     # === 서버 설정 ===
     HOST: str = "127.0.0.1"
@@ -84,21 +76,8 @@ class Settings:
         # 모델 경로
         self.MODEL_PATH = os.getenv("MODEL_PATH", self.MODEL_PATH)
         
-        # Oracle 설정
-        self.WALLET_PATH = os.getenv("WALLET_PATH", self.WALLET_PATH)
-        # TNS_ADMIN이 설정되어 있으면 WALLET_PATH보다 우선
-        if os.getenv("TNS_ADMIN"):
-            self.WALLET_PATH = os.getenv("TNS_ADMIN")
-        
-        self.DB_USER = os.getenv("DB_USER", self.DB_USER)
-        self.DB_PASSWORD = os.getenv("DB_PASSWORD", self.DB_PASSWORD)
-        self.WALLET_PASSWORD = os.getenv("WALLET_PASSWORD", self.WALLET_PASSWORD)
-        self.ORACLE_SERVICE_NAME = os.getenv("ORACLE_SERVICE_NAME", self.ORACLE_SERVICE_NAME)
-        
-        # 연결 풀 설정
-        self.DB_POOL_MIN = int(os.getenv("DB_POOL_MIN", str(self.DB_POOL_MIN)))
-        self.DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", str(self.DB_POOL_MAX)))
-        self.DB_POOL_INCREMENT = int(os.getenv("DB_POOL_INCREMENT", str(self.DB_POOL_INCREMENT)))
+        # Legacy API 설정
+        self.LEGACY_PATH = os.getenv("LEGACY_PATH", self.LEGACY_PATH)
         
         # 서버 설정
         self.HOST = os.getenv("HOST", self.HOST)
@@ -115,50 +94,44 @@ class Settings:
         
         print(f"🔧 설정 로드 완료:")
         print(f"   모델 경로: {self.MODEL_PATH}")
-        print(f"   Wallet 경로: {self.WALLET_PATH}")
-        print(f"   DB 사용자: {self.DB_USER}")
-        print(f"   Oracle 서비스: {self.ORACLE_SERVICE_NAME}")
+        print(f"   Legacy API: {self.LEGACY_PATH}")
         print(f"   서버: {self.HOST}:{self.PORT}")
+        print(f"   CORS 허용: {', '.join(self.ALLOWED_ORIGINS)}")
     
     def _validate_paths(self):
         """경로 유효성 검증"""
-        # Wallet 경로 존재 확인
-        wallet_path = Path(self.WALLET_PATH)
-        if not wallet_path.exists():
-            print(f"⚠️ Wallet 경로가 존재하지 않습니다: {self.WALLET_PATH}")
-        else:
-            # 필수 wallet 파일들 확인
-            required_files = ["tnsnames.ora", "sqlnet.ora"]
-            missing_files = []
-            for file_name in required_files:
-                if not (wallet_path / file_name).exists():
-                    missing_files.append(file_name)
-            
-            if missing_files:
-                print(f"⚠️ 누락된 wallet 파일들: {', '.join(missing_files)}")
-            else:
-                print(f"✅ Wallet 파일들이 확인되었습니다: {self.WALLET_PATH}")
-        
         # 모델 파일 존재 확인
         model_path = Path(self.MODEL_PATH)
         if not model_path.exists():
             print(f"⚠️ 모델 파일이 존재하지 않습니다: {self.MODEL_PATH}")
         else:
             print(f"✅ 모델 파일이 확인되었습니다: {self.MODEL_PATH}")
+        
+        # Legacy API URL 형식 확인
+        if not self.LEGACY_PATH.startswith(('http://', 'https://')):
+            print(f"⚠️ Legacy API URL 형식이 올바르지 않습니다: {self.LEGACY_PATH}")
+        else:
+            print(f"✅ Legacy API URL이 확인되었습니다: {self.LEGACY_PATH}")
     
     def _validate_required_settings(self):
-        """필수 설정값 검증 (모델 파일은 경고만)"""
+        """필수 설정값 검증"""
         errors = []
         warnings = []
         
-        if not self.ORACLE_SERVICE_NAME:
-            errors.append("ORACLE_SERVICE_NAME이 설정되지 않았습니다.")
-        
+        # 모델 파일 체크 (경고만)
         if not Path(self.MODEL_PATH).exists():
             warnings.append(f"모델 파일이 존재하지 않습니다: {self.MODEL_PATH} (AI 기능 비활성화)")
-            
-        if not Path(self.WALLET_PATH).exists():
-            warnings.append(f"Wallet 경로가 존재하지 않습니다: {self.WALLET_PATH} (DB 기능 비활성화)")
+        
+        # Legacy API URL 체크 (경고만)
+        if not self.LEGACY_PATH.startswith(('http://', 'https://')):
+            warnings.append(f"Legacy API URL 형식이 올바르지 않습니다: {self.LEGACY_PATH}")
+        
+        # 서버 설정 체크
+        if not (1 <= self.PORT <= 65535):
+            errors.append(f"포트 번호가 유효하지 않습니다: {self.PORT}")
+        
+        if self.WORKERS < 1:
+            errors.append(f"워커 수가 유효하지 않습니다: {self.WORKERS}")
         
         # 경고 메시지 출력
         if warnings:
@@ -168,17 +141,10 @@ class Settings:
         
         return errors
     
-    def get_db_config(self) -> dict:
-        """데이터베이스 연결 설정 반환"""
+    def get_legacy_config(self) -> dict:
+        """Legacy API 연결 설정 반환"""
         return {
-            "wallet_path": self.WALLET_PATH,
-            "db_user": self.DB_USER,
-            "db_password": self.DB_PASSWORD,
-            "wallet_password": self.WALLET_PASSWORD,
-            "service_name": self.ORACLE_SERVICE_NAME,
-            "pool_min": self.DB_POOL_MIN,
-            "pool_max": self.DB_POOL_MAX,
-            "pool_increment": self.DB_POOL_INCREMENT
+            "legacy_path": self.LEGACY_PATH,
         }
     
     def get_server_config(self) -> dict:
@@ -195,7 +161,7 @@ class Settings:
         모든 설정 검증
         
         Returns:
-            검증 성공 여부
+            검증 성공 여부 (심각한 오류가 없으면 True)
         """
         errors = self._validate_required_settings()
         
@@ -206,7 +172,7 @@ class Settings:
             print("\n💡 .env 파일을 확인하고 필요한 설정을 추가해주세요.")
             return False
         else:
-            print("✅ 모든 설정이 유효합니다.")
+            print("✅ 핵심 설정이 유효합니다.")
             return True
     
     def __str__(self):
@@ -214,11 +180,8 @@ class Settings:
         return f"""
 Settings Configuration:
 - Model Path: {self.MODEL_PATH}
-- Wallet Path: {self.WALLET_PATH}
-- Wallet User: {self.WALLET_USER}
-- Oracle Service: {self.ORACLE_SERVICE_NAME}
+- Legacy API: {self.LEGACY_PATH}
 - Server: {self.HOST}:{self.PORT} (workers: {self.WORKERS})
-- DB Pool: {self.DB_POOL_MIN}-{self.DB_POOL_MAX}
 - Categories: {len(self.CLASS_NAMES)} items
 - CORS Origins: {len(self.ALLOWED_ORIGINS)} origins
         """.strip()

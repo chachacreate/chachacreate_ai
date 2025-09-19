@@ -5,7 +5,7 @@
 """
 
 from .ai_classifier import AIClassifierService
-from .database_service import DatabaseService
+from .legacy_service import LegacyService
 from .price_service import PriceService
 
 __all__ = [
