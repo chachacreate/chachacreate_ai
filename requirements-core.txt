@@ -5,7 +5,7 @@ python-multipart==0.0.20
 python-dotenv==1.1.1
 
 # api 통신
-aiohttp=3.12.15
+aiohttp==3.12.15
 
 # 데이터 처리
 pydantic==2.11.7
