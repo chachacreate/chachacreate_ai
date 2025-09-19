@@ -128,7 +128,7 @@ class PriceService:
                             "q3_price": float(data.get("q3Price", 0)),
                             "product_count": int(data.get("productCount", 0)),
                             "price_stddev": float(data.get("priceStddev", 0)),
-                            "legacy_category": legacy_category_name,
+                            "db_category": legacy_category_name,  # 클라이언트가 기대하는 필드명
                             "ai_category": category_name
                         }
                         

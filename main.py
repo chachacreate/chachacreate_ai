@@ -189,7 +189,7 @@ async def predict_image(file: UploadFile = File(...)) -> Dict[str, Any]:
                 prediction["price_info"] = None
                 print(f"⚠️ 가격 서비스가 비활성화되어 있습니다.")
         
-        # 응답 구성
+        # 응답 구성 (기존 구조 유지)
         top_prediction = predictions[0]
         top_price_info = top_prediction.get("price_info")
         
@@ -202,8 +202,7 @@ async def predict_image(file: UploadFile = File(...)) -> Dict[str, Any]:
             "price_recommendation": _build_price_recommendation(
                 top_prediction["category"], 
                 top_price_info
-            ),
-            "legacy_api_used": price_service is not None and price_service.is_available()
+            )
         }
         
         return response
@@ -245,7 +244,7 @@ async def get_service_status():
 # === 헬퍼 함수들 ===
 
 def _build_price_recommendation(category: str, price_info: dict) -> dict:
-    """가격 추천 정보 구성"""
+    """가격 추천 정보 구성 (기존 구조 유지)"""
     return {
         "category": category,
         "average_price": price_info.get("average_price") if price_info else None,
@@ -255,8 +254,7 @@ def _build_price_recommendation(category: str, price_info: dict) -> dict:
             "median": price_info.get("median_price") if price_info else None
         } if price_info else None,
         "product_count": price_info.get("product_count", 0) if price_info else 0,
-        "legacy_api_connected": legacy_service is not None,
-        "source": "legacy_api" if price_info else "unavailable"
+        "db_connected": legacy_service is not None and legacy_service.is_connected()
     }
 
 
