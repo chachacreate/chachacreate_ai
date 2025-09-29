@@ -1,11 +1,9 @@
-"""
-Image Classification API
-이미지 분류 및 가격 정보 제공 FastAPI 애플리케이션 (Legacy API 연동)
-"""
-
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from datetime import datetime
 import uvicorn
 import sys
 import os
@@ -44,34 +42,50 @@ app.add_middleware(
 ai_service: AIClassifierService = None
 legacy_service: LegacyService = None
 price_service: PriceService = None
+scheduler: AsyncIOScheduler = None
+
+# 재시작 시도 카운터
+restart_attempts = {
+    "ai_service": 0,
+    "legacy_service": 0
+}
+MAX_RESTART_ATTEMPTS = 3
 
 
-@app.on_event("startup")
-async def startup_event():
-    """서버 시작시 모든 서비스 초기화"""
+async def initialize_services():
+    """모든 서비스 초기화"""
     global ai_service, legacy_service, price_service
     
     print("🚀 서비스 초기화를 시작합니다...")
     
     # AI 분류 서비스 초기화
     print("📡 AI 분류 서비스 로딩 중...")
-    ai_service = AIClassifierService(settings.MODEL_PATH)
+    if ai_service is None:
+        ai_service = AIClassifierService(settings.MODEL_PATH)
+    
     model_loaded = await ai_service.load_model()
     
     if model_loaded:
         print("✅ AI 모델이 성공적으로 로드되었습니다.")
+        restart_attempts["ai_service"] = 0  # 성공 시 카운터 리셋
     else:
         print("❌ AI 모델 로드에 실패했습니다.")
+        restart_attempts["ai_service"] += 1
     
     # Legacy 서비스 초기화
     print("🔗 Legacy 서비스 연결 중...")
-    legacy_service = LegacyService(settings)
+    if legacy_service is None:
+        legacy_service = LegacyService(settings)
+    
     legacy_connected = await legacy_service.initialize()
     
     if legacy_connected:
         print("✅ Legacy 서비스 연결이 성공했습니다.")
+        restart_attempts["legacy_service"] = 0  # 성공 시 카운터 리셋
+        
         # 가격 서비스 초기화 (Legacy 연결 성공시에만)
-        price_service = PriceService(legacy_service)
+        if price_service is None:
+            price_service = PriceService(legacy_service)
         print("💰 가격 서비스가 초기화되었습니다.")
         
         # Legacy API 상태 확인
@@ -82,15 +96,115 @@ async def startup_event():
             print(f"⚠️ Legacy API 연결에 문제가 있습니다: {health_status.get('error', 'Unknown error')}")
     else:
         print("⚠️ Legacy 서비스 연결에 실패했습니다. 가격 정보 기능이 비활성화됩니다.")
-        price_service = None
+        restart_attempts["legacy_service"] += 1
     
     print("🎉 모든 서비스 초기화가 완료되었습니다!")
+    return model_loaded and legacy_connected
+
+
+async def health_check_and_restart():
+    """헬스체크 및 필요시 서비스 재시작"""
+    global ai_service, legacy_service, price_service
+    
+    print(f"\n🏥 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 정기 헬스체크 시작...")
+    
+    needs_restart = False
+    
+    # AI 서비스 체크
+    if ai_service is None or not ai_service.is_loaded():
+        print("⚠️ AI 서비스가 비정상 상태입니다.")
+        if restart_attempts["ai_service"] < MAX_RESTART_ATTEMPTS:
+            needs_restart = True
+        else:
+            print(f"❌ AI 서비스 재시작 최대 시도 횟수({MAX_RESTART_ATTEMPTS})를 초과했습니다.")
+    else:
+        print("✅ AI 서비스 정상")
+    
+    # Legacy 서비스 체크
+    if legacy_service is None:
+        print("⚠️ Legacy 서비스가 비정상 상태입니다.")
+        if restart_attempts["legacy_service"] < MAX_RESTART_ATTEMPTS:
+            needs_restart = True
+        else:
+            print(f"❌ Legacy 서비스 재시작 최대 시도 횟수({MAX_RESTART_ATTEMPTS})를 초과했습니다.")
+    else:
+        # Legacy API 상태 확인
+        if price_service:
+            health_status = await price_service.health_check()
+            if health_status.get("legacy_api_available"):
+                print("✅ Legacy 서비스 정상")
+            else:
+                print(f"⚠️ Legacy API 연결 불가: {health_status.get('error')}")
+                if restart_attempts["legacy_service"] < MAX_RESTART_ATTEMPTS:
+                    needs_restart = True
+    
+    # 재시작 필요 시 실행
+    if needs_restart:
+        print("🔄 서비스 재시작을 시도합니다...")
+        try:
+            # 기존 리소스 정리
+            if price_service:
+                await price_service.cleanup()
+            if legacy_service:
+                await legacy_service.cleanup()
+            
+            # 서비스 재초기화
+            success = await initialize_services()
+            
+            if success:
+                print("✅ 서비스 재시작이 성공했습니다.")
+            else:
+                print("⚠️ 서비스 재시작이 부분적으로 실패했습니다.")
+                
+        except Exception as e:
+            print(f"❌ 서비스 재시작 중 오류 발생: {str(e)}")
+    else:
+        print("✅ 모든 서비스가 정상 상태입니다.")
+    
+    print("🏥 헬스체크 완료\n")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """서버 시작시 모든 서비스 초기화 및 스케줄러 설정"""
+    global scheduler
+    
+    # 서비스 초기화
+    success = await initialize_services()
+    
+    if not success:
+        print("⚠️ 초기 서비스 시작에 실패했습니다. 스케줄러가 자동으로 재시도합니다.")
+    
+    # 스케줄러 설정
+    scheduler = AsyncIOScheduler()
+    
+    scheduler.add_job(
+    health_check_and_restart,
+    trigger=CronTrigger(minute=0),
+    id="hourly_health_check",
+    name="Hourly Health Check",
+    replace_existing=True
+)
+    
+    scheduler.start()
+    
+    # 다음 실행 시간 출력
+    jobs = scheduler.get_jobs()
+    for job in jobs:
+        print(f"   📅 {job.name}: 다음 실행 - {job.next_run_time}")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """서버 종료시 리소스 정리"""
+    global scheduler
+    
     print("🔄 서비스 정리 중...")
+    
+    # 스케줄러 종료
+    if scheduler and scheduler.running:
+        scheduler.shutdown()
+        print("⏰ 스케줄러가 종료되었습니다.")
     
     if price_service:
         await price_service.cleanup()
@@ -123,7 +237,8 @@ async def root():
     return {
         "message": "Image Classification API (Legacy Integration)", 
         "status": "running",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "scheduler": "active" if scheduler and scheduler.running else "inactive"
     }
 
 
@@ -135,15 +250,34 @@ async def health_check():
     if price_service:
         legacy_health = await price_service.health_check()
     
+    # 스케줄러 정보
+    scheduler_info = None
+    if scheduler and scheduler.running:
+        jobs = scheduler.get_jobs()
+        scheduler_info = {
+            "running": True,
+            "jobs": [
+                {
+                    "id": job.id,
+                    "name": job.name,
+                    "next_run": job.next_run_time.isoformat() if job.next_run_time else None
+                }
+                for job in jobs
+            ]
+        }
+    
     return {
         "status": "healthy",
         "services": {
             "ai_model": ai_service is not None and ai_service.is_loaded(),
             "legacy_service": legacy_service is not None,
             "price_service": price_service is not None,
-            "legacy_api": legacy_health.get("legacy_api_available", False) if legacy_health else False
+            "legacy_api": legacy_health.get("legacy_api_available", False) if legacy_health else False,
+            "scheduler": scheduler is not None and scheduler.running
         },
-        "legacy_api_info": legacy_health if legacy_health else None
+        "restart_attempts": restart_attempts,
+        "legacy_api_info": legacy_health if legacy_health else None,
+        "scheduler_info": scheduler_info
     }
 
 
@@ -222,13 +356,19 @@ async def get_service_status():
         "ai_service": {
             "available": ai_service is not None,
             "model_loaded": ai_service.is_loaded() if ai_service else False,
-            "model_path": settings.MODEL_PATH
+            "model_path": settings.MODEL_PATH,
+            "restart_attempts": restart_attempts["ai_service"]
         },
         "legacy_service": {
             "available": legacy_service is not None,
-            "legacy_path": settings.LEGACY_PATH
+            "legacy_path": settings.LEGACY_PATH,
+            "restart_attempts": restart_attempts["legacy_service"]
         },
-        "price_service": None
+        "price_service": None,
+        "scheduler": {
+            "running": scheduler is not None and scheduler.running,
+            "jobs": []
+        }
     }
     
     # 가격 서비스 상태 정보
@@ -238,7 +378,38 @@ async def get_service_status():
         health_check_result = await price_service.health_check()
         status["price_service"]["health_check"] = health_check_result
     
+    # 스케줄러 작업 정보
+    if scheduler and scheduler.running:
+        jobs = scheduler.get_jobs()
+        status["scheduler"]["jobs"] = [
+            {
+                "id": job.id,
+                "name": job.name,
+                "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+                "trigger": str(job.trigger)
+            }
+            for job in jobs
+        ]
+    
     return status
+
+
+@app.post("/restart")
+async def manual_restart():
+    """수동 서비스 재시작 엔드포인트"""
+    try:
+        print("🔄 수동 서비스 재시작 요청...")
+        await health_check_and_restart()
+        return {
+            "success": True,
+            "message": "서비스 재시작이 완료되었습니다.",
+            "restart_attempts": restart_attempts
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"서비스 재시작 실패: {str(e)}"
+        )
 
 
 # === 헬퍼 함수들 ===
@@ -271,6 +442,7 @@ if __name__ == "__main__":
     print(f"   Workers: {server_config['workers']}")
     print(f"   Log Level: {server_config['log_level']}")
     print(f"   Legacy API 연동 모드")
+    print(f"   자동 재시작: 매일 자정")
     
     uvicorn.run(
         "main:app",
