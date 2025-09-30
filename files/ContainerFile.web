@@ -6,8 +6,8 @@ ENV TZ=Asia/Seoul
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# 시간대 설정 및 필요한 시스템 패키지 설치
-RUN apt-get update && apt-get install -y \
+# 시스템 패키지 업데이트 및 보안 패치 적용
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     gcc \
     g++ \
     libc6-dev \
@@ -18,6 +18,12 @@ RUN apt-get update && apt-get install -y \
     && ln -snf /usr/share/zoneinfo/Asia/Seoul /etc/localtime \
     && echo Asia/Seoul > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
+
+# pip, setuptools, wheel 보안 업데이트
+RUN pip install --no-cache-dir --upgrade \
+    pip>=25.2 \
+    setuptools>=78.1.1 \
+    wheel>=0.46
     
 # 작업 디렉토리 설정
 WORKDIR /app
@@ -28,8 +34,7 @@ COPY requirements-torch.txt .
 COPY requirements-cv.txt .
 
 # Python 패키지 설치 (레이어를 3개로 나눠서 진행)
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements-core.txt
+RUN pip install --no-cache-dir -r requirements-core.txt
 RUN pip install --no-cache-dir -r requirements-torch.txt
 RUN pip install --no-cache-dir -r requirements-cv.txt
 
